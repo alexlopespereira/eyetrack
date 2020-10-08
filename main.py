@@ -8,30 +8,17 @@ from util import RingBuffer
 import pyautogui
 pyautogui.FAILSAFE = False
 
-s0x, s0y = pyautogui.position()
-
-def exp_function(x, axis=0):
-    if axis == 0:
-        alpha = 0.056137917
-        beta = 2.501428786
-    else:
-        alpha = 0.0091
-        beta = 2.488
-    # ret = beta * np.exp(alpha * x - 1)
-    ret = x #math.pow(x, 1.7)/50
-    return ret
+s0x, s0y = 400, 400 #pyautogui.position()
 
 
 def calc_displacements(s, inc, axis=0):
-    d = exp_function(s, axis) * inc
-    # if s1 > s0:
-    #     d = -d
+    d = 0.9 * abs(s) * inc
     return d
 
 
-ringlen = 10
+ringlen = 1000
 total_W = total_H = 0
-turning_th = 1
+turning_th = 2
 
 for m in get_monitors():
     total_H += m.height
@@ -52,69 +39,71 @@ last_dist_x = last_dist_y = 0
 firstx = True
 firsty = True
 count = 0
-
+data = np.array([[125, 249], [135, 259], [145, 269], [155, 279],
+                 [135, 259], [115, 239], [ 95, 219], [ 75, 199]])
 while True:
     _, frame = cap.read()
+    # s0x, s0y = pyautogui.position()
 # images = sorted(glob.glob('data/*.png'))
 # for fname in images:
 #     frame = cv2.imread(fname)
+# for m in data:
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     ret, corners = cv2.findChessboardCorners(gray, (3, 3), None, flags=cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
         + cv2.CALIB_CB_FAST_CHECK)
     destx = s0x
     desty = s0y
+    # if True:
     if ret == True:
         m = cv2.mean(corners)
         xhistory.extend(np.array([m[0]]))
         yhistory.extend(np.array([m[1]]))
-        if not firstx:
+        count += 1
+        if count < 12:
+            continue
+
+        dx = xhistory.get()
+        dispx = np.mean(dx[-3:]) - np.mean(dx[-6:-3])
+        last_dispx = np.mean(dx[-9:-6]) - np.mean(dx[-6:-3])
+        changed_directionx = np.sign(dispx) != np.sign(last_dispx)
+        if changed_directionx:
+            tmp = dx[-2:]
+            xhistory = RingBuffer(ringlen)
+            xhistory.extend(np.array(tmp))
             dx = xhistory.get()
-            first_pointx = np.nonzero(dx)[0][0]
-            dispx = dx[-1] - dx[first_pointx]
-            curr_dist_x = abs(dispx)
-            if len(np.nonzero(dx)[0]) > 1 and (curr_dist_x + turning_th < abs(dx[-2] - dx[first_pointx])):
-                xhistory = RingBuffer(ringlen)
-                firstx = True
-                s0x = (s0x - curr_dist_x) if dispx > 0 else (s0x + curr_dist_x)
-                last_dist_x = 0
-            else:
-                last_dist_x = curr_dist_x
-            incdx = calc_displacements(curr_dist_x, incx, axis=0)
-            destx = s0x + incdx
+            dispx = dx[-1] - dx[-2]
 
-        if not firsty:
+        incdx = calc_displacements(dispx, incx, axis=0)
+        signx = 1 if dispx > 0 else -1
+        destx = int(s0x + incdx*signx)
+
+        dy = yhistory.get()
+        dispy = np.mean(dy[-3:]) - np.mean(dy[-6:-3])
+        last_dispy = np.mean(dy[-9:-6]) - np.mean(dy[-6:-3])
+        changed_directiony = np.sign(dispy) != np.sign(last_dispy)
+        if changed_directiony:
+            tmp = dy[-2:]
+            yhistory = RingBuffer(ringlen)
+            yhistory.extend(np.array(tmp))
             dy = yhistory.get()
-            first_pointy = np.nonzero(dy)[0][0]
-            dispy = dy[-1] - dy[first_pointy]
-            curr_dist_y = abs(dispy)
-            if len(np.nonzero(dx)[0]) > 1 and (curr_dist_y < abs(dy[-2] - dy[first_pointy])):
-                yhistory = RingBuffer(ringlen)
-                firsty = True
-                s0y = (s0y - curr_dist_y) if dispy > 0 else (s0y + curr_dist_y)
-                last_dist_y = 0
-            else:
-                last_dist_y = curr_dist_y
-            incdy = calc_displacements(curr_dist_y, incy, axis=1)
-            desty = s0y + incdy
+            dispy = dy[-1] - dy[-2]
 
+        incdy = calc_displacements(dispy, incy, axis=1)
+        signy = 1 if dispy > 0 else -1
+        desty = int(s0y+ incdy*signy)
 
-        adjx = int(max(1, min(destx, total_W-1)))
-        adjy = int(max(1, min(desty, total_H-1)))
-        print(destx, desty, adjx, adjy)
-        pyautogui.moveTo(adjx, adjy)
+        s0x = int(max(1, min(destx, total_W-10)))
+        s0y = int(max(1, min(desty, total_H-10)))
+        print(int(m[0]), int(m[1]), s0x, s0y)
+        pyautogui.moveTo(total_W - s0x, s0y)
         # Draw and display the corners
-        img = cv2.drawChessboardCorners(frame, (3, 3), corners, ret)
-        # cv2.imshow("corners", img)
+        # img = cv2.drawChessboardCorners(frame, (3, 3), corners, ret)
 
-    cv2.imshow("Frame", frame)
-    # cv2.imshow("gray", gray)
-    firstx = False
-    firsty = False
-    count += 1
-    key = cv2.waitKey(1)
-    if key == 27:
-        break
+    # cv2.imshow("Frame", frame)
+    # key = cv2.waitKey(1)
+    # if key == 27:
+    #     break
 
 cap.release()
 cv2.destroyAllWindows()
